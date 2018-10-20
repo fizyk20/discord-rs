@@ -2,6 +2,7 @@
 use std::collections::HashMap;
 
 use async;
+use error::Error;
 
 use model::*;
 #[cfg(feature="voice")]
@@ -58,31 +59,31 @@ impl Connection {
 		Ok((conn, ready))
 	}
 
-	fn internal_events(&mut self, e: GatewayEvent) -> Option<Event> {
+	fn internal_events(&mut self, e: GatewayEvent) -> Result<Option<Event>> {
 		match e {
 			GatewayEvent::Dispatch(seq, e) => {
 				self.last_sequence = seq;
-				Some(e)
-			},
+				Ok(Some(e))
+			}
 			GatewayEvent::Heartbeat(_) => {
-				let _ = self.inner.send( json! {{ "op": 11}} );
-				None
-			},
+				let _ = self.inner.send(json! {{ "op": 11}});
+				Ok(None)
+			}
 			GatewayEvent::Reconnect | GatewayEvent::InvalidateSession => {
 				self.inner.disconnect();
-				None
-			}, 
-			_ => None,
+				Err(Error::Other("disconnected"))
+			}
+			_ => Ok(None),
 		}
 	}
 
 	/// Receive an event over the websocket, blocking until one is available.
 	pub fn recv_event(&mut self) -> Result<Event> {
 		loop {
-			let ge = self.inner.recv()?; 
-			match self.internal_events(ge) {
+			let ge = self.inner.recv()?;
+			match self.internal_events(ge)? {
 				Some(e) => return Ok(e),
-				None => {},
+				None => {}
 			}
 		}
 	}
@@ -90,7 +91,7 @@ impl Connection {
 	/// Receive an event over the websocket, nonblocking.
 	pub fn try_recv_event(&mut self) -> Result<Option<Event>> {
 		match self.inner.try_recv() {
-			Ok(Some(e)) => Ok(self.internal_events(e)),
+			Ok(Some(e)) => self.internal_events(e),
 			Ok(None) => Ok(None),
 			Err(e) => Err(e),
 		}
